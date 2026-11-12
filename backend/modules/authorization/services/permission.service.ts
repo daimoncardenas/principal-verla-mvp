@@ -216,13 +216,13 @@ export async function resolveEffectivePermissions(
     _id: employee.employee_type_id,
     organization_id: context.organization_id,
     partner_id: context.partner_id,
+    is_active: true,
+    deleted_at: null,
   });
 
-  if (!employeeType) {
-    return [];
-  }
-
-  const rolePermissionIds = employeeType.permission_ids;
+  const rolePermissionIds = employeeType
+    ? employeeType.permission_ids
+    : [];
   const additionalPermissionIds = employee.additional_permission ?? [];
   const codeById = await loadPermissionCodes(
     uniqueObjectIds([...rolePermissionIds, ...additionalPermissionIds]),
