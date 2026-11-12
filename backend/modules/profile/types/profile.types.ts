@@ -14,3 +14,9 @@ export interface UpdateProfileInput {
   contact_email?: string;
   address?: string | null;
 }
+
+export interface ChangePasswordInput {
+  current_password: string;
+  new_password: string;
+  expectedVersion: number;
+}

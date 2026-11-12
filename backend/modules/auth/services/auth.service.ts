@@ -132,6 +132,13 @@ export async function loginWithPassword(
   return { token, context };
 }
 
+export function isSessionTokenCurrent(
+  accountTokenVersion: number,
+  tokenVersion: number,
+): boolean {
+  return accountTokenVersion === tokenVersion;
+}
+
 export async function getSessionContext(
   token: string,
 ): Promise<AuthContext | null> {
@@ -154,7 +161,7 @@ export async function getSessionContext(
     return null;
   }
 
-  if (account.token_version !== claims.token_version) {
+  if (!isSessionTokenCurrent(account.token_version, claims.token_version)) {
     return null;
   }
 

@@ -66,6 +66,30 @@ export async function updateProfileAccount(
   );
 }
 
+export async function updateProfilePassword(
+  filter: QueryFilter<UserAccount>,
+  passwordHash: string,
+  updatedBy: Types.ObjectId,
+  session: ClientSession,
+) {
+  await connectToDatabase();
+
+  return UserAccountModel.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        password_hash: passwordHash,
+        updated_by: updatedBy,
+      },
+      $inc: {
+        token_version: 1,
+        version: 1,
+      },
+    },
+    { new: true, runValidators: true, session },
+  );
+}
+
 export async function updateProfilePartner(
   filter: QueryFilter<Partner>,
   changes: Record<string, unknown>,

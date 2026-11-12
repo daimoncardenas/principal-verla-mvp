@@ -7,8 +7,15 @@ import {
   ProfileNotFoundError,
   ProfileValidationError,
 } from "../services/profile.errors";
-import { getProfile, updateProfile } from "../services/profile.service";
-import type { UpdateProfileInput } from "../types/profile.types";
+import {
+  changeProfilePassword,
+  getProfile,
+  updateProfile,
+} from "../services/profile.service";
+import type {
+  ChangePasswordInput,
+  UpdateProfileInput,
+} from "../types/profile.types";
 
 const ALLOWED_FIELDS = [
   "expectedVersion",
@@ -167,8 +174,53 @@ export function parseUpdateInput(
   return { input, record };
 }
 
+export function parsePasswordInput(body: unknown): ChangePasswordInput {
+  const record = asRecord(body);
+  const passwordFields = [
+    "current_password",
+    "new_password",
+    "expectedVersion",
+  ] as const;
+
+  for (const field of Object.keys(record)) {
+    if (!(passwordFields as readonly string[]).includes(field)) {
+      throw new ProfileValidationError(`${field} is not allowed`);
+    }
+  }
+
+  if (typeof record.current_password !== "string") {
+    throw new ProfileValidationError("current_password must be a string");
+  }
+
+  if (typeof record.new_password !== "string") {
+    throw new ProfileValidationError("new_password must be a string");
+  }
+
+  if (record.new_password.length === 0) {
+    throw new ProfileValidationError("new_password is required");
+  }
+
+  return {
+    current_password: record.current_password,
+    new_password: record.new_password,
+    expectedVersion: parseExpectedVersion(record),
+  };
+}
+
 export async function handleGet(context: AuthContext) {
   return getProfile(context);
+}
+
+export async function handlePassword(
+  context: AuthContext,
+  body: unknown,
+  requestId: string,
+) {
+  const input = parsePasswordInput(body);
+
+  await changeProfilePassword(context, input, requestId);
+
+  return { ok: true };
 }
 
 export async function handleUpdate(

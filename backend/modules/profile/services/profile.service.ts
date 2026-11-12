@@ -8,6 +8,7 @@ import mongoose, {
 
 import { connectToDatabase } from "../../../config/mongodb";
 import { assertPermission } from "../../authorization/services/permission.service";
+import { hashPassword, verifyPassword } from "../../auth/services/password.service";
 import type { AuthContext } from "../../auth/types/auth.types";
 import {
   recordHistoryChange,
@@ -22,6 +23,7 @@ import {
   findProfilePartner,
   updateProfileAccount,
   updateProfileEmployee,
+  updateProfilePassword,
   updateProfilePartner,
 } from "../repository/profile.repository";
 import {
@@ -29,7 +31,10 @@ import {
   ProfileNotFoundError,
   ProfileValidationError,
 } from "./profile.errors";
-import type { UpdateProfileInput } from "../types/profile.types";
+import type {
+  ChangePasswordInput,
+  UpdateProfileInput,
+} from "../types/profile.types";
 
 type AccountDocument = HydratedDocument<UserAccount>;
 type PartnerDocument = HydratedDocument<Partner>;
@@ -49,6 +54,8 @@ const PARTNER_FIELDS = [
   "phone",
   "address",
 ] as const;
+
+const SHARED_PROFILE_FIELDS = new Set(["phone"]);
 
 export interface ProfileResponse {
   account: {
@@ -242,8 +249,9 @@ export function assertProfileFieldsForAccountType(
   accountType: "PARTNER" | "EMPLOYEE",
   record: Record<string, unknown>,
 ): void {
-  const forbiddenFields =
-    accountType === "PARTNER" ? EMPLOYEE_FIELDS : PARTNER_FIELDS;
+  const forbiddenFields = (
+    accountType === "PARTNER" ? EMPLOYEE_FIELDS : PARTNER_FIELDS
+  ).filter((field) => !SHARED_PROFILE_FIELDS.has(field));
 
   assertNoTitularFields(record, forbiddenFields, accountType);
 }
@@ -626,5 +634,87 @@ export async function updateProfile(
       updatedPartner ?? partner,
       updatedEmployee ?? employee,
     );
+  });
+}
+
+export function buildPasswordAudit(
+  previousTokenVersion: number,
+  newTokenVersion: number,
+): {
+  previous_values: Record<string, unknown>;
+  new_values: Record<string, unknown>;
+} {
+  return {
+    previous_values: { token_version: previousTokenVersion },
+    new_values: { token_version: newTokenVersion },
+  };
+}
+
+export async function changeProfilePassword(
+  context: AuthContext,
+  input: ChangePasswordInput,
+  requestId: string,
+): Promise<void> {
+  await assertPermission(context, "PROFILE_UPDATE");
+
+  if (input.new_password.length === 0) {
+    throw new ProfileValidationError("new_password is required");
+  }
+
+  const account = await findProfileAccount(
+    context.account_id,
+    context.organization_id,
+  );
+
+  if (!account) {
+    throw new ProfileNotFoundError();
+  }
+
+  assertProfileVersion(
+    account.version,
+    input.expectedVersion,
+    "expectedVersion",
+  );
+
+  if (!account.password_hash) {
+    throw new ProfileValidationError("Current password is invalid");
+  }
+
+  const isCurrentPasswordValid = await verifyPassword(
+    input.current_password,
+    account.password_hash,
+  );
+
+  if (!isCurrentPasswordValid) {
+    throw new ProfileValidationError("Current password is invalid");
+  }
+
+  const passwordHash = await hashPassword(input.new_password);
+  const auditContext = buildAuditContext(context, requestId);
+
+  await withTransaction(async (session) => {
+    const updated = await updateProfilePassword(
+      {
+        _id: account._id,
+        organization_id: context.organization_id,
+        version: input.expectedVersion,
+        deleted_at: null,
+        is_service: false,
+      },
+      passwordHash,
+      context.account_id,
+      session,
+    );
+
+    if (!updated) {
+      throw new ProfileConflictError("Version conflict");
+    }
+
+    await recordHistoryChange(session, auditContext, {
+      entity_name: "user_account",
+      record_id: updated._id,
+      action: "UPDATE",
+      ...buildPasswordAudit(account.token_version, updated.token_version),
+    });
   });
 }
