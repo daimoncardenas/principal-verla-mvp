@@ -77,7 +77,7 @@ async function resolveContext(
       account.partner_id,
     );
 
-    if (!employee || employee.status !== "ACTIVE" || employee.deleted_at) {
+    if (!employee || !isEmployeeSessionEligible(employee)) {
       return null;
     }
 
@@ -137,6 +137,13 @@ export function isSessionTokenCurrent(
   tokenVersion: number,
 ): boolean {
   return accountTokenVersion === tokenVersion;
+}
+
+export function isEmployeeSessionEligible(employee: {
+  status: string;
+  deleted_at: Date | null;
+}): boolean {
+  return employee.status === "ACTIVE" && employee.deleted_at === null;
 }
 
 export async function getSessionContext(

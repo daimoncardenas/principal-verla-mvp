@@ -11,16 +11,20 @@ import {
   EmployeeValidationError,
 } from "../services/employee.errors";
 import {
+  changeEmployeeStatus,
   changeSupervisor,
   createEmployee,
+  deleteEmployee,
   getEmployee,
   listAssignments,
   listEmployees,
   updateEmployee,
 } from "../services/employee.service";
 import type {
+  ChangeEmployeeStatusInput,
   ChangeSupervisorInput,
   CreateEmployeeInput,
+  DeleteEmployeeInput,
   ListEmployeeFilters,
   UpdateEmployeeInput,
 } from "../types/employee.types";
@@ -245,6 +249,81 @@ function parseSupervisorInput(body: unknown): ChangeSupervisorInput {
   };
 }
 
+function parseExpectedVersion(record: Record<string, unknown>): number {
+  if (
+    typeof record.expectedVersion !== "number" ||
+    !Number.isInteger(record.expectedVersion) ||
+    record.expectedVersion < 0
+  ) {
+    throw new EmployeeValidationError(
+      "expectedVersion must be a non-negative integer",
+    );
+  }
+
+  return record.expectedVersion;
+}
+
+export function parseStatusInput(body: unknown): ChangeEmployeeStatusInput {
+  const record = asRecord(body);
+  const allowedFields = ["expectedVersion", "status", "status_reason"];
+
+  for (const field of Object.keys(record)) {
+    if (!allowedFields.includes(field)) {
+      throw new EmployeeValidationError(`${field} is not allowed`);
+    }
+  }
+
+  if (
+    record.status !== "ACTIVE" &&
+    record.status !== "INACTIVE" &&
+    record.status !== "BLOCKED"
+  ) {
+    throw new EmployeeValidationError("status is invalid");
+  }
+
+  if (
+    "status_reason" in record &&
+    record.status_reason !== null &&
+    typeof record.status_reason !== "string"
+  ) {
+    throw new EmployeeValidationError("status_reason must be a string");
+  }
+
+  if (
+    record.status !== "ACTIVE" &&
+    (typeof record.status_reason !== "string" ||
+      record.status_reason.trim().length === 0)
+  ) {
+    throw new EmployeeValidationError(
+      "status_reason is required for INACTIVE or BLOCKED",
+    );
+  }
+
+  return {
+    expectedVersion: parseExpectedVersion(record),
+    status: record.status,
+    status_reason:
+      record.status === "ACTIVE"
+        ? null
+        : (record.status_reason as string),
+  };
+}
+
+export function parseDeleteInput(body: unknown): DeleteEmployeeInput {
+  const record = asRecord(body);
+  const allowedFields = ["expectedVersion"];
+
+  for (const field of Object.keys(record)) {
+    if (!allowedFields.includes(field)) {
+      throw new EmployeeValidationError(`${field} is not allowed`);
+    }
+  }
+
+  return {
+    expectedVersion: parseExpectedVersion(record),
+  };
+}
+
 function serializeAssignment(assignment: AssignmentDocument) {
   return {
     id: assignment._id.toString(),
@@ -352,6 +431,38 @@ export async function handleSupervisor(
   );
 
   return { employee: serializeEmployee(employee) };
+}
+
+export async function handleStatus(
+  context: AuthContext,
+  employeeId: string,
+  body: unknown,
+  requestId: string,
+) {
+  const employee = await changeEmployeeStatus(
+    context,
+    parseObjectId(employeeId, "employee id"),
+    parseStatusInput(body),
+    requestId,
+  );
+
+  return { employee: serializeEmployee(employee) };
+}
+
+export async function handleDelete(
+  context: AuthContext,
+  employeeId: string,
+  body: unknown,
+  requestId: string,
+) {
+  await deleteEmployee(
+    context,
+    parseObjectId(employeeId, "employee id"),
+    parseDeleteInput(body),
+    requestId,
+  );
+
+  return { ok: true };
 }
 
 export async function handleAssignments(

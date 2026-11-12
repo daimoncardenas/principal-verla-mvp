@@ -37,3 +37,13 @@ export interface ListEmployeeFilters {
   city_id?: Types.ObjectId;
   status?: "ACTIVE" | "INACTIVE" | "BLOCKED";
 }
+
+export interface ChangeEmployeeStatusInput {
+  expectedVersion: number;
+  status: "ACTIVE" | "INACTIVE" | "BLOCKED";
+  status_reason?: string | null;
+}
+
+export interface DeleteEmployeeInput {
+  expectedVersion: number;
+}

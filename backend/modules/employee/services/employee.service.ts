@@ -50,8 +50,10 @@ import {
   EmployeeValidationError,
 } from "./employee.errors";
 import type {
+  ChangeEmployeeStatusInput,
   ChangeSupervisorInput,
   CreateEmployeeInput,
+  DeleteEmployeeInput,
   ListEmployeeFilters,
   UpdateEmployeeInput,
 } from "../types/employee.types";
@@ -118,6 +120,9 @@ function employeeSnapshot(
     additional_permission:
       employee.additional_permission?.map((id) => id.toString()) ?? null,
     status: employee.status,
+    status_reason: employee.status_reason,
+    status_changed_at: employee.status_changed_at,
+    status_changed_by: employee.status_changed_by?.toString() ?? null,
   };
 }
 
@@ -1121,4 +1126,146 @@ export async function listAssignments(
     context.organization_id,
     context.partner_id,
   );
+}
+
+export function normalizeStatusReason(
+  status: "ACTIVE" | "INACTIVE" | "BLOCKED",
+  reason: string | null | undefined,
+): string | null {
+  if (status === "ACTIVE") {
+    return null;
+  }
+
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    throw new EmployeeValidationError(
+      "status_reason is required for INACTIVE or BLOCKED",
+    );
+  }
+
+  return reason.trim();
+}
+
+export async function changeEmployeeStatus(
+  context: AuthContext,
+  employeeId: Types.ObjectId,
+  input: ChangeEmployeeStatusInput,
+  requestId: string,
+): Promise<EmployeeDocument> {
+  await assertPermission(context, "EMPLOYEE_STATUS_UPDATE");
+
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
+    throw new EmployeeValidationError(
+      "expectedVersion must be a non-negative integer",
+    );
+  }
+
+  const current = await loadScopedEmployee(context, employeeId);
+
+  if (current.version !== input.expectedVersion) {
+    throw new EmployeeConflictError("Version conflict");
+  }
+
+  const statusReason = normalizeStatusReason(
+    input.status,
+    input.status_reason,
+  );
+
+  if (current.status === input.status) {
+    return current;
+  }
+
+  const statusChangedAt = new Date();
+  const businessChanges = {
+    status: input.status,
+    status_reason: statusReason,
+    status_changed_at: statusChangedAt,
+    status_changed_by: context.account_id,
+  };
+  const auditDiff = buildEmployeeAuditDiff(current, businessChanges);
+  const auditContext = buildAuditContext(context, requestId);
+
+  return withTransaction(async (session) => {
+    const updated = await updateEmployeeRecord(
+      {
+        _id: employeeId,
+        organization_id: context.organization_id,
+        partner_id: context.partner_id,
+        version: input.expectedVersion,
+        deleted_at: null,
+      },
+      {
+        ...businessChanges,
+        updated_by: context.account_id,
+      },
+      session,
+    );
+
+    if (!updated) {
+      throw new EmployeeConflictError("Version conflict");
+    }
+
+    await recordHistoryChange(session, auditContext, {
+      entity_name: "employee",
+      record_id: updated._id,
+      action: "UPDATE",
+      previous_values: auditDiff.previous_values,
+      new_values: auditDiff.new_values,
+    });
+
+    return updated;
+  });
+}
+
+export async function deleteEmployee(
+  context: AuthContext,
+  employeeId: Types.ObjectId,
+  input: DeleteEmployeeInput,
+  requestId: string,
+): Promise<void> {
+  await assertPermission(context, "EMPLOYEE_DELETE");
+
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
+    throw new EmployeeValidationError(
+      "expectedVersion must be a non-negative integer",
+    );
+  }
+
+  const current = await loadScopedEmployee(context, employeeId);
+
+  if (current.version !== input.expectedVersion) {
+    throw new EmployeeConflictError("Version conflict");
+  }
+
+  const deletedAt = new Date();
+  const auditContext = buildAuditContext(context, requestId);
+
+  await withTransaction(async (session) => {
+    const deleted = await updateEmployeeRecord(
+      {
+        _id: employeeId,
+        organization_id: context.organization_id,
+        partner_id: context.partner_id,
+        version: input.expectedVersion,
+        deleted_at: null,
+      },
+      {
+        deleted_at: deletedAt,
+        deleted_by: context.account_id,
+        updated_by: context.account_id,
+      },
+      session,
+    );
+
+    if (!deleted) {
+      throw new EmployeeConflictError("Version conflict");
+    }
+
+    await recordHistoryChange(session, auditContext, {
+      entity_name: "employee",
+      record_id: deleted._id,
+      action: "DELETE",
+      previous_values: employeeSnapshot(current),
+      new_values: null,
+    });
+  });
 }
