@@ -21,9 +21,19 @@ import {
   Textarea,
 } from "../../components/ui";
 import { apiFetch, errorMessage } from "../../lib/api";
+import {
+  currentYearMonthInTimeZone,
+  formatDate,
+  formatMonth,
+} from "../../lib/format";
 import { useApiData } from "../../lib/hooks";
 import { hasPermission } from "../../lib/permissions";
-import type { ActivityType, Goal } from "../../lib/types";
+import type {
+  ActivityType,
+  EmployeeGoal,
+  Goal,
+  MetricGroup,
+} from "../../lib/types";
 
 export default function GoalsPage() {
   const session = useSession();
@@ -40,6 +50,19 @@ export default function GoalsPage() {
   const activityTypes = useApiData<{ activity_types: ActivityType[] }>(
     canListTypes ? "/api/activity-types" : null,
   );
+  const employeeGoals = useApiData<{ employee_goals: EmployeeGoal[] }>(
+    canList ? "/api/employee-goals" : null,
+  );
+  const period = currentYearMonthInTimeZone(session.organization.timezone);
+  const canReadMetrics = hasPermission(session.permissions, "GOAL_METRICS");
+  const metricsUrl = canReadMetrics
+    ? session.account_type === "PARTNER"
+      ? `/api/goal-metrics/partner?year=${period.year}&month=${period.month}`
+      : session.employee_id
+        ? `/api/goal-metrics/seller/${session.employee_id}?year=${period.year}&month=${period.month}`
+        : null
+    : null;
+  const metrics = useApiData<{ groups: MetricGroup[] }>(metricsUrl);
 
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -48,6 +71,22 @@ export default function GoalsPage() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const assignmentCountByGoal = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of employeeGoals.data?.employee_goals ?? []) {
+      if (item.status !== "ACTIVE") continue;
+      counts.set(item.goal_id, (counts.get(item.goal_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [employeeGoals.data]);
+  const metricByGoal = useMemo(() => {
+    const map = new Map<string, MetricGroup>();
+    for (const group of metrics.data?.groups ?? []) {
+      if (!map.has(group.goal_id)) map.set(group.goal_id, group);
+    }
+    return map;
+  }, [metrics.data]);
 
   const typeNames = useMemo(() => {
     const map = new Map<string, string>();
@@ -134,6 +173,22 @@ export default function GoalsPage() {
             (goals.data?.goals ?? []).filter((goal) => !goal.is_active).length,
           )}
         />
+        <StatCard
+          label="Asignaciones activas"
+          value={String(
+            (employeeGoals.data?.employee_goals ?? []).filter(
+              (item) => item.status === "ACTIVE",
+            ).length,
+          )}
+          detail={formatMonth(period.year, period.month)}
+        />
+        {canReadMetrics ? (
+          <StatCard
+            label="Metas con avance"
+            value={String(metricByGoal.size)}
+            detail="Periodo actual"
+          />
+        ) : null}
       </div>
 
       <Card>
@@ -174,7 +229,10 @@ export default function GoalsPage() {
                     <th>Meta</th>
                     <th>Tipo de actividad</th>
                     <th>Agregación</th>
+                    <th>Asignaciones</th>
+                    <th>Avance</th>
                     <th>Estado</th>
+                    <th>Creada</th>
                     <th>Código</th>
                   </tr>
                 </thead>
@@ -196,11 +254,18 @@ export default function GoalsPage() {
                         {typeNames.get(goal.activity_type_id) ?? "—"}
                       </td>
                       <td>{goal.aggregation}</td>
+                      <td>{assignmentCountByGoal.get(goal.id) ?? 0}</td>
+                      <td>
+                        {metricByGoal.get(goal.id)
+                          ? `${metricByGoal.get(goal.id)?.actual_value} / ${metricByGoal.get(goal.id)?.target_value}`
+                          : "—"}
+                      </td>
                       <td>
                         <Badge tone={goal.is_active ? "success" : "warning"}>
                           {goal.is_active ? "Activa" : "Inactiva"}
                         </Badge>
                       </td>
+                      <td>{formatDate(goal.created_at)}</td>
                       <td className="mono">{goal.code}</td>
                     </tr>
                   ))}

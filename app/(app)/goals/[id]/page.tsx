@@ -23,12 +23,16 @@ import {
   Textarea,
 } from "@/app/components/ui";
 import { apiFetch, errorMessage } from "@/app/lib/api";
-import { formatMonth } from "@/app/lib/format";
+import {
+  currentYearMonthInTimeZone,
+  formatDate,
+  formatDateTime,
+  formatMonth,
+} from "@/app/lib/format";
 import { useApiData } from "@/app/lib/hooks";
 import { hasPermission } from "@/app/lib/permissions";
 import type {
   ActivityType,
-  DashboardResponse,
   Employee,
   EmployeeGoal,
   Goal,
@@ -54,11 +58,21 @@ export default function GoalDetailPage() {
       ? "/api/activity-types"
       : null,
   );
-  const dashboard = useApiData<DashboardResponse>(
-    hasPermission(session.permissions, "DASHBOARD_READ")
-      ? "/api/dashboard"
-      : null,
+  const canReadMetrics = hasPermission(session.permissions, "GOAL_METRICS");
+  const initialPeriod = currentYearMonthInTimeZone(
+    session.organization.timezone,
   );
+  const [year, setYear] = useState(initialPeriod.year);
+  const [month, setMonth] = useState(initialPeriod.month);
+  const isPartner = session.account_type === "PARTNER";
+  const metricsUrl = canReadMetrics
+    ? isPartner
+      ? `/api/goal-metrics/partner?year=${year}&month=${month}`
+      : session.employee_id
+        ? `/api/goal-metrics/seller/${session.employee_id}?year=${year}&month=${month}`
+        : null
+    : null;
+  const metrics = useApiData<{ groups: MetricGroup[] }>(metricsUrl);
 
   const goal = goalData.data?.goal;
   const [tab, setTab] = useState("general");
@@ -94,21 +108,21 @@ export default function GoalDetailPage() {
   const assignedGoals = useMemo(
     () =>
       (employeeGoals.data?.employee_goals ?? []).filter(
-        (item) => item.goal_id === goal?.id,
+        (item) =>
+          item.goal_id === goal?.id &&
+          item.year === year &&
+          item.month === month,
       ),
-    [employeeGoals.data, goal?.id],
+    [employeeGoals.data, goal?.id, year, month],
   );
 
-  const metricGroups = useMemo(() => {
-    const metrics = dashboard.data?.metrics;
-    if (!metrics) return [] as MetricGroup[];
-    const groups = [
-      ...(metrics.groups ?? []),
-      ...(metrics.own?.groups ?? []),
-      ...(metrics.team?.groups ?? []),
-    ];
-    return groups.filter((group) => group.goal_id === goal?.id);
-  }, [dashboard.data, goal?.id]);
+  const metricGroups = useMemo(
+    () =>
+      (metrics.data?.groups ?? []).filter(
+        (group) => group.goal_id === goal?.id,
+      ),
+    [metrics.data, goal?.id],
+  );
 
   function openEdit() {
     if (!goal) return;
@@ -143,7 +157,7 @@ export default function GoalDetailPage() {
       });
       setEditOpen(false);
       goalData.reload();
-      dashboard.reload();
+      metrics.reload();
     } catch (cause) {
       const message = errorMessage(cause);
       setError(message);
@@ -198,6 +212,34 @@ export default function GoalDetailPage() {
         <span className="text-xs muted mono">{goal.code}</span>
       </div>
 
+      <div className="form-grid" aria-label="Periodo de métricas">
+        <Field label="Año" htmlFor="goal_metrics_year">
+          <Input
+            id="goal_metrics_year"
+            type="number"
+            min={2000}
+            max={2100}
+            value={year}
+            onChange={(event) => setYear(Number(event.target.value))}
+          />
+        </Field>
+        <Field label="Mes" htmlFor="goal_metrics_month">
+          <Select
+            id="goal_metrics_month"
+            value={month}
+            onChange={(event) => setMonth(Number(event.target.value))}
+          >
+            {Array.from({ length: 12 }, (_, index) => index + 1).map(
+              (value) => (
+                <option key={value} value={value}>
+                  {formatMonth(year, value)}
+                </option>
+              ),
+            )}
+          </Select>
+        </Field>
+      </div>
+
       <Tabs
         tabs={[
           { id: "general", label: "Datos generales" },
@@ -249,6 +291,14 @@ export default function GoalDetailPage() {
                   <tr>
                     <th>Oferta específica</th>
                     <td>{goal.offer_id ? "Sí" : "No"}</td>
+                  </tr>
+                  <tr>
+                    <th>Creada</th>
+                    <td>{formatDateTime(goal.created_at)}</td>
+                  </tr>
+                  <tr>
+                    <th>Actualizada</th>
+                    <td>{formatDateTime(goal.updated_at)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -340,18 +390,18 @@ export default function GoalDetailPage() {
             description="Avance consolidado del periodo actual."
           />
           <div className="card-body stack">
-            {!hasPermission(session.permissions, "GOAL_METRICS") ? (
+            {!canReadMetrics ? (
               <Alert tone="info">
                 Tu cuenta no incluye GOAL_METRICS para consultar el avance.
               </Alert>
-            ) : dashboard.loading ? (
+            ) : metrics.loading ? (
               <Spinner label="Cargando métricas…" />
-            ) : dashboard.error ? (
-              <Alert tone="error">{dashboard.error}</Alert>
+            ) : metrics.error ? (
+              <Alert tone="error">{metrics.error}</Alert>
             ) : metricGroups.length === 0 ? (
               <EmptyState
                 title="Sin métricas del periodo"
-                description="No hay avance consolidado para esta meta en el periodo actual."
+                description={`No hay avance consolidado para ${formatMonth(year, month)}.`}
               />
             ) : (
               metricGroups.map((group) => (
@@ -368,6 +418,11 @@ export default function GoalDetailPage() {
                       group.progress_percentage >= 100 ? "success" : "accent"
                     }
                   />
+                  <span className="text-xs muted">
+                    {group.actual_value} / {group.target_value} · restante{" "}
+                    {Math.max(group.target_value - group.actual_value, 0)} ·{" "}
+                    {group.progress_percentage.toFixed(1)}%
+                  </span>
                   <span className="text-xs muted">
                     {group.rules.required_activity_status} · {group.rules.aggregation}
                   </span>
