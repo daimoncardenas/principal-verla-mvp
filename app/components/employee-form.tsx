@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { apiFetch, errorMessage } from "../lib/api";
 import { toDateInputValue } from "../lib/format";
@@ -142,6 +142,12 @@ export function EmployeeForm({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!employeeTypeId && employeeTypes.length > 0) {
+      setEmployeeTypeId(employeeTypes[0].id);
+    }
+  }, [employeeTypeId, employeeTypes]);
 
   const selectedType = employeeTypes.find(
     (type) => type.id === employeeTypeId,
