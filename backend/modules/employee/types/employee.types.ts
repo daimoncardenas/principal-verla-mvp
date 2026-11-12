@@ -24,6 +24,7 @@ export interface UpdateEmployeeInput {
   city_ids?: Types.ObjectId[];
   additional_permission?: Types.ObjectId[] | null;
   employee_type_id?: Types.ObjectId;
+  supervisor_id?: Types.ObjectId | null;
 }
 
 export interface ChangeSupervisorInput {

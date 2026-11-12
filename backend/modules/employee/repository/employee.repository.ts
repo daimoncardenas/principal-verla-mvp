@@ -163,6 +163,7 @@ export async function closeAssignmentRecord(
     {
       _id: assignmentId,
       valid_to: null,
+      valid_from: { $lt: validTo },
     },
     {
       $set: {

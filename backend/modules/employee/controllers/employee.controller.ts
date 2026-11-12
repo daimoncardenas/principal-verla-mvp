@@ -170,9 +170,9 @@ export function parseCreateInput(body: unknown): CreateEmployeeInput {
 export function parseUpdateInput(body: unknown): UpdateEmployeeInput {
   const record = asRecord(body);
 
-  if ("supervisor_id" in record) {
+  if ("supervisor_id" in record && !("employee_type_id" in record)) {
     throw new EmployeeValidationError(
-      "Use the supervisor endpoint to change the supervisor",
+      "supervisor_id is only allowed together with employee_type_id",
     );
   }
 
@@ -215,6 +215,12 @@ export function parseUpdateInput(body: unknown): UpdateEmployeeInput {
       record.employee_type_id,
       "employee_type_id",
     );
+  }
+  if ("supervisor_id" in record) {
+    input.supervisor_id =
+      record.supervisor_id === null
+        ? null
+        : parseObjectId(record.supervisor_id, "supervisor_id");
   }
 
   return input;

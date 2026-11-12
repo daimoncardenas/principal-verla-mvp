@@ -480,6 +480,56 @@ export function resolveSupervisorForCreation(input: {
   return input.requestedSupervisorId;
 }
 
+export function requiresPermissionAssignForCreation(
+  additionalPermission: readonly Types.ObjectId[] | null | undefined,
+): boolean {
+  return (additionalPermission?.length ?? 0) > 0;
+}
+
+export function resolveSupervisorForRoleChange(input: {
+  currentSupervisorId: Types.ObjectId | null;
+  requestedSupervisorId: Types.ObjectId | null | undefined;
+  targetTypeCode: string;
+}): Types.ObjectId | null {
+  if (input.targetTypeCode === "COORDINATOR") {
+    if (input.requestedSupervisorId) {
+      throw new EmployeeValidationError(
+        "COORDINATOR employees cannot have a supervisor",
+      );
+    }
+
+    return null;
+  }
+
+  if (input.targetTypeCode === "SELLER") {
+    const supervisorId =
+      input.requestedSupervisorId === undefined
+        ? input.currentSupervisorId
+        : input.requestedSupervisorId;
+
+    if (!supervisorId) {
+      throw new EmployeeValidationError("SELLER requires a supervisor");
+    }
+
+    return supervisorId;
+  }
+
+  return input.requestedSupervisorId === undefined
+    ? input.currentSupervisorId
+    : input.requestedSupervisorId;
+}
+
+export function assertAssignmentCanCloseAt(
+  assignment: { valid_from: Date },
+  changeAt: Date,
+): void {
+  if (changeAt.getTime() <= assignment.valid_from.getTime()) {
+    throw new EmployeeValidationError(
+      "Assignment change time must be after valid_from",
+    );
+  }
+}
+
 async function withTransaction<T>(
   work: (session: ClientSession) => Promise<T>,
 ): Promise<T> {
@@ -612,10 +662,14 @@ export async function createEmployee(
   }
 
   await assertValidCities(context, input.city_ids);
-  await assertAdditionalPermissions(
-    context,
-    input.additional_permission ?? [],
-  );
+
+  if (requiresPermissionAssignForCreation(input.additional_permission)) {
+    await assertPermission(context, "PERMISSION_ASSIGN");
+    await assertAdditionalPermissions(
+      context,
+      input.additional_permission ?? [],
+    );
+  }
 
   const passwordHash = await hashPassword(defaultEmployeePassword());
   const email = input.email.trim().toLowerCase();
@@ -744,13 +798,20 @@ export async function updateEmployee(
     throw new EmployeeConflictError("Version conflict");
   }
 
+  const roleChanged =
+    input.employee_type_id !== undefined &&
+    !input.employee_type_id.equals(current.employee_type_id);
+
+  if (input.supervisor_id !== undefined && !roleChanged) {
+    throw new EmployeeValidationError(
+      "supervisor_id is only allowed together with a role change",
+    );
+  }
+
   let newEmployeeType: EmployeeTypeDocument | null = null;
   let newSupervisorId = current.supervisor_id;
 
-  if (
-    input.employee_type_id &&
-    !input.employee_type_id.equals(current.employee_type_id)
-  ) {
+  if (roleChanged && input.employee_type_id) {
     if (context.account_type === "EMPLOYEE") {
       throw new EmployeeAccessError(
         "Only the partner can change employee roles",
@@ -762,18 +823,33 @@ export async function updateEmployee(
       input.employee_type_id,
     );
 
-    if (newEmployeeType.code === "COORDINATOR") {
-      newSupervisorId = null;
-    } else if (newEmployeeType.code === "SELLER") {
-      if (!current.supervisor_id) {
+    if (
+      input.supervisor_id !== undefined &&
+      newEmployeeType.code !== "SELLER"
+    ) {
+      throw new EmployeeValidationError(
+        "supervisor_id is only allowed when changing to SELLER",
+      );
+    }
+
+    if (input.supervisor_id !== undefined) {
+      await assertPermission(context, "EMPLOYEE_ASSIGN_COORDINATOR");
+    }
+
+    newSupervisorId = resolveSupervisorForRoleChange({
+      currentSupervisorId: current.supervisor_id,
+      requestedSupervisorId: input.supervisor_id,
+      targetTypeCode: newEmployeeType.code,
+    });
+
+    if (newSupervisorId) {
+      if (newSupervisorId.equals(employeeId)) {
         throw new EmployeeValidationError(
-          "Assign a coordinator before changing to SELLER",
+          "Employee cannot be their own supervisor",
         );
       }
-      await assertCoordinator(context, current.supervisor_id);
-      newSupervisorId = current.supervisor_id;
-    } else if (current.supervisor_id) {
-      await assertCoordinator(context, current.supervisor_id);
+
+      await assertCoordinator(context, newSupervisorId);
     }
   }
 
@@ -797,7 +873,6 @@ export async function updateEmployee(
 
   const auditDiff = buildEmployeeAuditDiff(current, changes);
   const auditContext = buildAuditContext(context, requestId);
-  const roleChanged = newEmployeeType !== null;
   const currentAssignment = roleChanged
     ? await findCurrentAssignment(
         employeeId,
@@ -810,14 +885,18 @@ export async function updateEmployee(
     throw new EmployeeConflictError("Current assignment not found");
   }
 
+  const changeAt = new Date();
+
+  if (roleChanged && currentAssignment) {
+    assertAssignmentCanCloseAt(currentAssignment, changeAt);
+  }
+
   try {
     return await withTransaction(async (session) => {
-      const now = new Date();
-
       if (roleChanged && currentAssignment) {
         const closed = await closeAssignmentRecord(
           currentAssignment._id,
-          now,
+          changeAt,
           context.account_id,
           session,
         );
@@ -843,7 +922,7 @@ export async function updateEmployee(
             employee_id: employeeId,
             employee_type_id: newEmployeeType!._id,
             supervisor_id: newSupervisorId,
-            valid_from: now,
+            valid_from: changeAt,
             valid_to: null,
             created_by: context.account_id,
             updated_by: context.account_id,
@@ -948,12 +1027,13 @@ export async function changeSupervisor(
   }
 
   const auditContext = buildAuditContext(context, requestId);
+  const changeAt = new Date();
+  assertAssignmentCanCloseAt(currentAssignment, changeAt);
 
   return withTransaction(async (session) => {
-    const now = new Date();
     const closed = await closeAssignmentRecord(
       currentAssignment._id,
-      now,
+      changeAt,
       context.account_id,
       session,
     );
@@ -977,7 +1057,7 @@ export async function changeSupervisor(
         employee_id: employeeId,
         employee_type_id: current.employee_type_id,
         supervisor_id: input.supervisor_id,
-        valid_from: now,
+        valid_from: changeAt,
         valid_to: null,
         created_by: context.account_id,
         updated_by: context.account_id,
