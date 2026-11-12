@@ -44,7 +44,9 @@ export async function verifySessionToken(
       typeof payload.sub !== "string" ||
       typeof payload.organization_id !== "string" ||
       typeof payload.token_version !== "number" ||
-      !Number.isInteger(payload.token_version)
+      !Number.isInteger(payload.token_version) ||
+      typeof payload.exp !== "number" ||
+      !Number.isInteger(payload.exp)
     ) {
       return null;
     }
