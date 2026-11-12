@@ -117,7 +117,16 @@ const aiRunSchema = new Schema<AiRun>(
       default: [],
     },
     config_version: { type: String, required: true, trim: true },
-    base_offer_version: { type: Number, default: null, min: 0 },
+    base_offer_version: {
+      type: Number,
+      default: null,
+      min: 0,
+      validate: {
+        validator: (value: number | null) =>
+          value === null || Number.isInteger(value),
+        message: "base_offer_version must be a non-negative integer or null",
+      },
+    },
     started_at: { type: Date, required: true },
     finished_at: { type: Date, default: null },
     expires_at: { type: Date, required: true },

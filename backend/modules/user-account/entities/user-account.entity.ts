@@ -47,7 +47,16 @@ const userAccountSchema = new Schema<UserAccount>(
       default: "ACTIVE",
       required: true,
     },
-    token_version: { type: Number, required: true, default: 0, min: 0 },
+    token_version: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: "token_version must be a non-negative integer",
+      },
+    },
     last_login_at: { type: Date, default: null },
     theme: {
       type: String,
@@ -60,7 +69,15 @@ const userAccountSchema = new Schema<UserAccount>(
     is_service: { type: Boolean, required: true, default: false },
     created_by: { type: Schema.Types.ObjectId, ref: "UserAccount", default: null },
     updated_by: { type: Schema.Types.ObjectId, ref: "UserAccount", default: null },
-    version: { type: Number, default: 0, min: 0 },
+    version: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: "version must be a non-negative integer",
+      },
+    },
   },
   {
     collection: "user_account",
@@ -69,7 +86,7 @@ const userAccountSchema = new Schema<UserAccount>(
   },
 );
 
-userAccountSchema.index({ organization_id: 1, email: 1 }, { unique: true });
+userAccountSchema.index({ email: 1 }, { unique: true });
 userAccountSchema.index(
   { organization_id: 1, employee_id: 1 },
   { unique: true, partialFilterExpression: { account_type: "EMPLOYEE" } },

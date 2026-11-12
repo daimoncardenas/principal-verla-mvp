@@ -42,7 +42,15 @@ const employeeTypeSchema = new Schema<EmployeeType>(
     deleted_by: { type: Schema.Types.ObjectId, ref: "UserAccount", default: null },
     created_by: { type: Schema.Types.ObjectId, ref: "UserAccount", default: null },
     updated_by: { type: Schema.Types.ObjectId, ref: "UserAccount", default: null },
-    version: { type: Number, default: 0, min: 0 },
+    version: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: "version must be a non-negative integer",
+      },
+    },
   },
   {
     collection: "employee_type",
