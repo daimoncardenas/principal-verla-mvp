@@ -2,12 +2,14 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
+import { resolveEffectivePermissions } from "../../authorization/services/permission.service";
 import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
 } from "../constants";
 import type { AuthContext } from "../types/auth.types";
 import { getSessionContext } from "./auth.service";
+import { EmployeeTypeModel } from "../../employee-type/entities/employee-type.entity";
 
 export function sessionCookieOptions() {
   return {
@@ -54,5 +56,22 @@ export function serializeSession(context: AuthContext) {
     },
     partner_id: context.partner_id.toString(),
     employee_id: context.employee_id?.toString() ?? null,
+  };
+}
+
+export async function serializeSessionWithPermissions(
+  context: AuthContext,
+) {
+  const employeeType = context.employee_type_id
+    ? await EmployeeTypeModel.findById(context.employee_type_id)
+        .select("code name")
+        .lean()
+    : null;
+
+  return {
+    ...serializeSession(context),
+    role_code: employeeType?.code ?? context.account_type,
+    role_name: employeeType?.name ?? context.account_type,
+    permissions: await resolveEffectivePermissions(context),
   };
 }

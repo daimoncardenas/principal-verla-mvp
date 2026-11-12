@@ -249,6 +249,29 @@ export async function listEmployeeTypes(
   );
 }
 
+/**
+ * Minimal catalog for the employee creation form. It does not expose the
+ * organization's full role catalog: partners receive their active roles and
+ * coordinators only the SELLER role they are allowed to create.
+ */
+export async function listAssignableEmployeeTypes(
+  context: AuthContext,
+): Promise<EmployeeTypeDocument[]> {
+  await assertPermission(context, "EMPLOYEE_CREATE");
+
+  const employeeTypes = await listEmployeeTypeRecords(
+    context.organization_id,
+    context.partner_id,
+  );
+  const activeTypes = employeeTypes.filter((type) => type.is_active);
+
+  if (context.account_type === "PARTNER") {
+    return activeTypes;
+  }
+
+  return activeTypes.filter((type) => type.code === "SELLER");
+}
+
 export async function getEmployeeType(
   context: AuthContext,
   employeeTypeId: Types.ObjectId,

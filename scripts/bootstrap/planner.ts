@@ -108,6 +108,18 @@ export interface BootstrapPlan {
   skip_count: number;
 }
 
+/**
+ * City identity inside an organization is country + region + normalized name;
+ * the model allows homonymous names in different regions.
+ */
+export function cityKey(city: {
+  country_code: string;
+  region_code: string;
+  normalized_name: string;
+}): string {
+  return `${city.country_code}:${city.region_code}:${city.normalized_name}`;
+}
+
 function issue(
   section: PlanSection,
   key: string,
@@ -491,29 +503,30 @@ function planCities(
     skip: [],
     conflict: [],
   };
-  const byName = new Map(
-    existing.cities.map((city) => [city.normalized_name, city]),
+  const byKey = new Map(
+    existing.cities.map((city) => [cityKey(city), city]),
   );
 
   for (const seed of definitions.cities) {
-    const current = byName.get(seed.normalized_name);
-    push(section, seed.normalized_name, current !== undefined);
+    const key = cityKey(seed);
+    const current = byKey.get(key);
+    push(section, key, current !== undefined);
 
     if (!current) {
       continue;
     }
 
     if (current.country_code !== seed.country_code) {
-      issue(section, seed.normalized_name, "country_code differs");
+      issue(section, key, "country_code differs");
     }
     if (current.region_code !== seed.region_code) {
-      issue(section, seed.normalized_name, "region_code differs");
+      issue(section, key, "region_code differs");
     }
     if (!current.is_active) {
-      issue(section, seed.normalized_name, "city is inactive");
+      issue(section, key, "city is inactive");
     }
     if (current.deleted_at !== null) {
-      issue(section, seed.normalized_name, "city is logically deleted");
+      issue(section, key, "city is logically deleted");
     }
   }
 

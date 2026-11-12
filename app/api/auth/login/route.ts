@@ -7,7 +7,7 @@ import {
 import { assertSameOrigin } from "@/backend/modules/auth/services/csrf.service";
 import { SESSION_COOKIE_NAME } from "@/backend/modules/auth/constants";
 import {
-  serializeSession,
+  serializeSessionWithPermissions,
   sessionCookieOptions,
 } from "@/backend/modules/auth/services/session.service";
 
@@ -46,7 +46,9 @@ export async function POST(request: Request) {
 
   try {
     const { token, context } = await loginWithPassword(email, password);
-    const response = NextResponse.json({ user: serializeSession(context) });
+    const response = NextResponse.json({
+      user: await serializeSessionWithPermissions(context),
+    });
 
     response.cookies.set(
       SESSION_COOKIE_NAME,

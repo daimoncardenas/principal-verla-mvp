@@ -1,9 +1,13 @@
+import { INITIAL_SEED } from "./seed";
+
 /**
  * Initial configuration definitions for the principal application.
  *
- * Everything in this module is pure: it reads the environment and returns the
- * documented seed data without touching MongoDB. The CLI entry point decides
- * whether the plan is applied.
+ * Documented catalogs and seed sets live here; the one-time organization and
+ * partner identity lives in `seed.ts`. This module is pure: it reads the two
+ * initial passwords from the environment and returns the seed definitions
+ * without touching MongoDB. The CLI entry point decides whether the plan is
+ * applied.
  */
 
 export const ORGANIZATION_NAME = "VERLA";
@@ -65,7 +69,6 @@ export interface CitySeed {
 
 export interface BootstrapDefinitions {
   organization: OrganizationSeed;
-  organization_account: AccountSeed;
   service_account: AccountSeed;
   partner: PartnerSeed;
   partner_account: AccountSeed;
@@ -258,87 +261,15 @@ export const REQUIRED_ENVIRONMENT: ReadonlyArray<{
   purpose: string;
 }> = [
   {
-    name: "BOOTSTRAP_ORGANIZATION_LEGAL_NAME",
-    purpose: "Organization legal name",
-  },
-  { name: "BOOTSTRAP_ORGANIZATION_TAX_ID", purpose: "Organization tax id" },
-  {
-    name: "BOOTSTRAP_ORGANIZATION_CONTACT_EMAIL",
-    purpose: "Organization contact email",
-  },
-  {
-    name: "BOOTSTRAP_ORGANIZATION_ACCOUNT_EMAIL",
-    purpose: "Organization administrator email",
-  },
-  {
-    name: "BOOTSTRAP_ORGANIZATION_ACCOUNT_PASSWORD",
-    purpose: "Organization administrator initial password",
-  },
-  {
-    name: "BOOTSTRAP_ORGANIZATION_ACCOUNT_DISPLAY_NAME",
-    purpose: "Organization administrator display name",
-  },
-  {
-    name: "BOOTSTRAP_SERVICE_ACCOUNT_EMAIL",
-    purpose: "Technical account email used as bootstrap audit actor",
-  },
-  {
-    name: "BOOTSTRAP_SERVICE_ACCOUNT_DISPLAY_NAME",
-    purpose: "Technical account display name",
-  },
-  { name: "BOOTSTRAP_PARTNER_NAME", purpose: "Initial partner name" },
-  {
-    name: "BOOTSTRAP_PARTNER_LEGAL_NAME",
-    purpose: "Initial partner legal name",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_DOCUMENT_TYPE",
-    purpose: "Initial partner document type",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_DOCUMENT_NUMBER",
-    purpose: "Initial partner document number",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_CONTACT_NAME",
-    purpose: "Initial partner contact name",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_CONTACT_EMAIL",
-    purpose: "Initial partner contact email",
-  },
-  { name: "BOOTSTRAP_PARTNER_PHONE", purpose: "Initial partner phone" },
-  {
-    name: "BOOTSTRAP_PARTNER_ACCOUNT_EMAIL",
-    purpose: "Initial partner account email",
-  },
-  {
     name: "BOOTSTRAP_PARTNER_ACCOUNT_PASSWORD",
-    purpose: "Initial partner account password",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_ACCOUNT_DISPLAY_NAME",
-    purpose: "Initial partner account display name",
+    purpose: "Initial partner account password (apply only)",
   },
 ];
 
 export const OPTIONAL_ENVIRONMENT: ReadonlyArray<{
   name: string;
   purpose: string;
-}> = [
-  {
-    name: "BOOTSTRAP_ORGANIZATION_PHONE",
-    purpose: "Organization phone (nullable)",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_ADDRESS",
-    purpose: "Initial partner address (nullable)",
-  },
-  {
-    name: "BOOTSTRAP_PARTNER_CONTRACT_REFERENCE",
-    purpose: "Initial partner contract reference (nullable)",
-  },
-];
+}> = [];
 
 export class BootstrapConfigError extends Error {
   constructor(
@@ -368,19 +299,6 @@ export function normalizeCitySeedName(name: string): string {
     .trim();
 }
 
-function requiredText(
-  environment: NodeJS.ProcessEnv,
-  name: string,
-): string {
-  const value = environment[name]?.trim();
-
-  if (!value) {
-    throw new BootstrapConfigError(`Missing required environment: ${name}`);
-  }
-
-  return value;
-}
-
 function optionalText(
   environment: NodeJS.ProcessEnv,
   name: string,
@@ -393,7 +311,7 @@ function assertEmail(name: string, value: string): string {
   const email = normalizeEmail(value);
 
   if (!email) {
-    throw new BootstrapConfigError(`Missing required environment: ${name}`);
+    throw new BootstrapConfigError(`${name} must be a non-empty email`);
   }
 
   return email;
@@ -411,12 +329,18 @@ function assertKnownPermissionCodes(codes: readonly string[]): void {
   }
 }
 
+export interface LoadDefinitionsOptions {
+  require_passwords?: boolean;
+}
+
 export function loadDefinitions(
   environment: NodeJS.ProcessEnv = process.env,
+  options: LoadDefinitionsOptions = {},
 ): BootstrapDefinitions {
-  const missing = REQUIRED_ENVIRONMENT.filter(
-    (entry) => !environment[entry.name]?.trim(),
-  );
+  const requirePasswords = options.require_passwords ?? true;
+  const missing = requirePasswords
+    ? REQUIRED_ENVIRONMENT.filter((entry) => !environment[entry.name]?.trim())
+    : [];
 
   if (missing.length > 0) {
     throw new BootstrapConfigError(
@@ -432,21 +356,16 @@ export function loadDefinitions(
     assertKnownPermissionCodes(employeeType.permission_codes);
   }
 
-  const organizationAccountEmail = assertEmail(
-    "BOOTSTRAP_ORGANIZATION_ACCOUNT_EMAIL",
-    requiredText(environment, "BOOTSTRAP_ORGANIZATION_ACCOUNT_EMAIL"),
-  );
   const serviceAccountEmail = assertEmail(
-    "BOOTSTRAP_SERVICE_ACCOUNT_EMAIL",
-    requiredText(environment, "BOOTSTRAP_SERVICE_ACCOUNT_EMAIL"),
+    "seed.service_account.email",
+    INITIAL_SEED.service_account.email,
   );
   const partnerAccountEmail = assertEmail(
-    "BOOTSTRAP_PARTNER_ACCOUNT_EMAIL",
-    requiredText(environment, "BOOTSTRAP_PARTNER_ACCOUNT_EMAIL"),
+    "seed.partner_account.email",
+    INITIAL_SEED.partner_account.email,
   );
 
   const accountEmails = [
-    organizationAccountEmail,
     serviceAccountEmail,
     partnerAccountEmail,
   ];
@@ -460,71 +379,38 @@ export function loadDefinitions(
   return {
     organization: {
       name: ORGANIZATION_NAME,
-      legal_name: requiredText(
-        environment,
-        "BOOTSTRAP_ORGANIZATION_LEGAL_NAME",
-      ),
-      tax_id: requiredText(environment, "BOOTSTRAP_ORGANIZATION_TAX_ID"),
+      legal_name: INITIAL_SEED.organization.legal_name,
+      tax_id: INITIAL_SEED.organization.tax_id,
       contact_email: assertEmail(
-        "BOOTSTRAP_ORGANIZATION_CONTACT_EMAIL",
-        requiredText(environment, "BOOTSTRAP_ORGANIZATION_CONTACT_EMAIL"),
+        "seed.organization.contact_email",
+        INITIAL_SEED.organization.contact_email,
       ),
-      phone: optionalText(environment, "BOOTSTRAP_ORGANIZATION_PHONE"),
-    },
-    organization_account: {
-      email: organizationAccountEmail,
-      display_name: requiredText(
-        environment,
-        "BOOTSTRAP_ORGANIZATION_ACCOUNT_DISPLAY_NAME",
-      ),
-      password: requiredText(
-        environment,
-        "BOOTSTRAP_ORGANIZATION_ACCOUNT_PASSWORD",
-      ),
-      is_service: false,
+      phone: INITIAL_SEED.organization.phone,
     },
     service_account: {
       email: serviceAccountEmail,
-      display_name: requiredText(
-        environment,
-        "BOOTSTRAP_SERVICE_ACCOUNT_DISPLAY_NAME",
-      ),
+      display_name: INITIAL_SEED.service_account.display_name,
       password: null,
       is_service: true,
     },
     partner: {
-      name: requiredText(environment, "BOOTSTRAP_PARTNER_NAME"),
-      legal_name: requiredText(environment, "BOOTSTRAP_PARTNER_LEGAL_NAME"),
-      document_type: requiredText(
-        environment,
-        "BOOTSTRAP_PARTNER_DOCUMENT_TYPE",
-      ),
-      document_number: requiredText(
-        environment,
-        "BOOTSTRAP_PARTNER_DOCUMENT_NUMBER",
-      ),
-      contact_name: requiredText(
-        environment,
-        "BOOTSTRAP_PARTNER_CONTACT_NAME",
-      ),
+      name: INITIAL_SEED.partner.name,
+      legal_name: INITIAL_SEED.partner.legal_name,
+      document_type: INITIAL_SEED.partner.document_type,
+      document_number: INITIAL_SEED.partner.document_number,
+      contact_name: INITIAL_SEED.partner.contact_name,
       contact_email: assertEmail(
-        "BOOTSTRAP_PARTNER_CONTACT_EMAIL",
-        requiredText(environment, "BOOTSTRAP_PARTNER_CONTACT_EMAIL"),
+        "seed.partner.contact_email",
+        INITIAL_SEED.partner.contact_email,
       ),
-      phone: requiredText(environment, "BOOTSTRAP_PARTNER_PHONE"),
-      address: optionalText(environment, "BOOTSTRAP_PARTNER_ADDRESS"),
-      contract_reference: optionalText(
-        environment,
-        "BOOTSTRAP_PARTNER_CONTRACT_REFERENCE",
-      ),
+      phone: INITIAL_SEED.partner.phone,
+      address: INITIAL_SEED.partner.address,
+      contract_reference: INITIAL_SEED.partner.contract_reference,
     },
     partner_account: {
       email: partnerAccountEmail,
-      display_name: requiredText(
-        environment,
-        "BOOTSTRAP_PARTNER_ACCOUNT_DISPLAY_NAME",
-      ),
-      password: requiredText(
+      display_name: INITIAL_SEED.partner_account.display_name,
+      password: optionalText(
         environment,
         "BOOTSTRAP_PARTNER_ACCOUNT_PASSWORD",
       ),
@@ -539,7 +425,6 @@ export function loadDefinitions(
 }
 
 export type BootstrapAccountRole =
-  | "organization_account"
   | "service_account"
   | "partner_account";
 
@@ -552,10 +437,6 @@ export function accountSeeds(
   definitions: BootstrapDefinitions,
 ): BootstrapAccountRef[] {
   return [
-    {
-      role: "organization_account",
-      seed: definitions.organization_account,
-    },
     { role: "service_account", seed: definitions.service_account },
     { role: "partner_account", seed: definitions.partner_account },
   ];

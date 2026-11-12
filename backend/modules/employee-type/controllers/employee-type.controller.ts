@@ -13,6 +13,7 @@ import {
   createEmployeeType,
   deleteEmployeeType,
   getEmployeeType,
+  listAssignableEmployeeTypes,
   listEmployeeTypes,
   updateEmployeeType,
 } from "../services/employee-type.service";
@@ -175,6 +176,18 @@ export async function handleList(context: AuthContext) {
 
   return {
     employee_types: employeeTypes.map(serializeEmployeeType),
+  };
+}
+
+export async function handleListAssignable(context: AuthContext) {
+  const employeeTypes = await listAssignableEmployeeTypes(context);
+
+  return {
+    employee_types: employeeTypes.map((employeeType) => ({
+      id: employeeType._id.toString(),
+      code: employeeType.code,
+      name: employeeType.name,
+    })),
   };
 }
 

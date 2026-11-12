@@ -64,6 +64,7 @@ async function resolveContext(
   }
 
   let employeeId: Types.ObjectId | null = null;
+  let employeeTypeId: Types.ObjectId | null = null;
   let supervisorId: Types.ObjectId | null = null;
 
   if (accountType === "EMPLOYEE") {
@@ -82,6 +83,7 @@ async function resolveContext(
     }
 
     employeeId = employee._id;
+    employeeTypeId = employee.employee_type_id;
     supervisorId = employee.supervisor_id;
   }
 
@@ -96,6 +98,7 @@ async function resolveContext(
     timezone: organization.timezone,
     partner_id: partner._id,
     employee_id: employeeId,
+    employee_type_id: employeeTypeId,
     supervisor_id: supervisorId,
   };
 }

@@ -18,7 +18,9 @@ import type { BootstrapPlan } from "./bootstrap/planner";
  *
  * Remove --dry-run to apply. Dry-run reads only: it performs no writes and
  * creates no collections or indexes (autoCreate and autoIndex are disabled
- * before any model or connection is initialized).
+ * before any model or connection is initialized). Initial identity lives in
+ * scripts/bootstrap/seed.ts; only the two initial passwords come from the
+ * environment and are required for the apply run, not for --dry-run.
  */
 
 function printPlan(plan: BootstrapPlan, dryRun: boolean): void {
@@ -49,7 +51,9 @@ async function main(): Promise<void> {
   let definitions: BootstrapDefinitions;
 
   try {
-    definitions = loadDefinitions(process.env);
+    definitions = loadDefinitions(process.env, {
+      require_passwords: !dryRun,
+    });
   } catch (error) {
     if (error instanceof BootstrapConfigError) {
       console.error(
@@ -60,6 +64,7 @@ async function main(): Promise<void> {
             missing: error.missing,
             required_variables: REQUIRED_ENVIRONMENT,
             optional_variables: OPTIONAL_ENVIRONMENT,
+            seed_config: "scripts/bootstrap/seed.ts",
           },
           null,
           2,

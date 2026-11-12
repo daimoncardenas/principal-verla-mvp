@@ -2,7 +2,7 @@ import { connection, NextResponse } from "next/server";
 
 import {
   getSessionFromCookies,
-  serializeSession,
+  serializeSessionWithPermissions,
 } from "@/backend/modules/auth/services/session.service";
 
 export async function GET() {
@@ -15,7 +15,9 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    return NextResponse.json({ user: serializeSession(context) });
+    return NextResponse.json({
+      user: await serializeSessionWithPermissions(context),
+    });
   } catch {
     return NextResponse.json(
       { error: "Internal server error" },

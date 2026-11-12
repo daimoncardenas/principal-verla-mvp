@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { Button, Field, Input } from "../components/ui";
+
 export function SignInForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -21,50 +23,65 @@ export function SignInForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
 
       if (!response.ok) {
-        setError("Credenciales inválidas.");
+        setError(
+          response.status === 401
+            ? "Correo o contraseña incorrectos."
+            : payload?.error ?? "No se pudo iniciar sesión.",
+        );
         return;
       }
 
-      router.replace("/");
+      router.replace("/dashboard");
       router.refresh();
     } catch {
-      setError("No se pudo iniciar sesión.");
+      setError("No se pudo conectar con el servidor.");
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <label htmlFor="email">Correo</label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        autoComplete="email"
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        required
-      />
+    <form className="signin-form" onSubmit={handleSubmit}>
+      <Field label="Correo" htmlFor="email">
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          placeholder="tu@correo.com"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          required
+        />
+      </Field>
 
-      <label htmlFor="password">Contraseña</label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        autoComplete="current-password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        required
-      />
+      <Field label="Contraseña" htmlFor="password">
+        <Input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          placeholder="••••••••"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+      </Field>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div className="alert alert-error" role="alert">
+          {error}
+        </div>
+      ) : null}
 
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Ingresando…" : "Ingresar"}
-      </button>
+      <Button type="submit" className="btn-block" disabled={isSubmitting}>
+        {isSubmitting ? "Ingresando…" : "Ingresar al portal"}
+      </Button>
     </form>
   );
 }

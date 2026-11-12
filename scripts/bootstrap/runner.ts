@@ -33,6 +33,7 @@ import type {
   PartnerSnapshot,
   PermissionSnapshot,
 } from "./planner";
+import { cityKey } from "./planner";
 
 /**
  * Read-only snapshot loading and the transactional application of the
@@ -102,10 +103,11 @@ export async function readExistingState(
       ? []
       : await CityModel.find({
           organization_id: organizationId,
-          country_code: "CO",
-          normalized_name: {
-            $in: definitions.cities.map((seed) => seed.normalized_name),
-          },
+          $or: definitions.cities.map((seed) => ({
+            country_code: seed.country_code,
+            region_code: seed.region_code,
+            normalized_name: seed.normalized_name,
+          })),
         }).lean();
 
   return {
@@ -254,14 +256,16 @@ function buildIds(
 
   const cities = new Map(
     existing.cities.map((city) => [
-      city.normalized_name,
+      cityKey(city),
       new Types.ObjectId(city.id),
     ]),
   );
 
   for (const city of definitions.cities) {
-    if (!cities.has(city.normalized_name)) {
-      cities.set(city.normalized_name, new Types.ObjectId());
+    const key = cityKey(city);
+
+    if (!cities.has(key)) {
+      cities.set(key, new Types.ObjectId());
     }
   }
 
@@ -320,6 +324,21 @@ function accountSnapshot(
     theme: "SYSTEM",
     is_service: seed.is_service,
   };
+}
+
+function resolvePermissionIds(
+  codes: readonly string[],
+  permissions: Map<string, Types.ObjectId>,
+): Types.ObjectId[] {
+  return codes.map((code) => {
+    const permissionId = permissions.get(code);
+
+    if (!permissionId) {
+      throw new Error(`Permission id was not generated: ${code}`);
+    }
+
+    return permissionId;
+  });
 }
 
 async function createAll(
@@ -411,43 +430,6 @@ async function createAll(
     created += 1;
   }
 
-  const organizationAccount = definitions.organization_account;
-  if (!existing.accounts.some((a) => a.email === organizationAccount.email)) {
-    const passwordHash = passwordHashes.get(organizationAccount.email);
-
-    if (!passwordHash) {
-      throw new Error("Organization account password hash is missing");
-    }
-
-    await createAudited(
-      session,
-      UserAccountModel,
-      {
-        _id: ids.accounts.get(organizationAccount.email),
-        organization_id: ids.organization,
-        partner_id: null,
-        employee_id: null,
-        account_type: "ORGANIZATION",
-        display_name: organizationAccount.display_name,
-        email: organizationAccount.email,
-        password_hash: passwordHash,
-        status: "ACTIVE",
-        token_version: 0,
-        last_login_at: null,
-        theme: "SYSTEM",
-        deleted_at: null,
-        deleted_by: null,
-        is_service: false,
-        created_by: actorId,
-        updated_by: actorId,
-      },
-      "user_account",
-      auditFor(null),
-      accountSnapshot(organizationAccount, "ORGANIZATION", null),
-    );
-    created += 1;
-  }
-
   for (const seed of definitions.permissions) {
     if (existing.permissions.some((p) => p.code === seed.code)) {
       continue;
@@ -483,6 +465,11 @@ async function createAll(
   }
 
   if (!existing.partner) {
+    const enabledPermissionIds = resolvePermissionIds(
+      definitions.partner_enabled_permission_codes,
+      ids.permissions,
+    );
+
     await createAudited(
       session,
       PartnerModel,
@@ -498,16 +485,7 @@ async function createAll(
         phone: definitions.partner.phone,
         address: definitions.partner.address,
         contract_reference: definitions.partner.contract_reference,
-        enabled_permission_ids:
-          definitions.partner_enabled_permission_codes.map((code) => {
-            const permissionId = ids.permissions.get(code);
-
-            if (!permissionId) {
-              throw new Error(`Permission id was not generated: ${code}`);
-            }
-
-            return permissionId;
-          }),
+        enabled_permission_ids: enabledPermissionIds,
         status: "ACTIVE",
         status_reason: null,
         status_changed_at: null,
@@ -530,8 +508,9 @@ async function createAll(
         address: definitions.partner.address,
         contract_reference: definitions.partner.contract_reference,
         status: "ACTIVE",
-        enabled_permission_ids:
-          definitions.partner_enabled_permission_codes.map(String),
+        enabled_permission_ids: enabledPermissionIds.map((permissionId) =>
+          permissionId.toString(),
+        ),
       },
     );
     created += 1;
@@ -579,6 +558,11 @@ async function createAll(
       continue;
     }
 
+    const permissionIds = resolvePermissionIds(
+      seed.permission_codes,
+      ids.permissions,
+    );
+
     await createAudited(
       session,
       EmployeeTypeModel,
@@ -589,15 +573,7 @@ async function createAll(
         code: seed.code,
         name: seed.name,
         description: null,
-        permission_ids: seed.permission_codes.map((code) => {
-          const permissionId = ids.permissions.get(code);
-
-          if (!permissionId) {
-            throw new Error(`Permission id was not generated: ${code}`);
-          }
-
-          return permissionId;
-        }),
+        permission_ids: permissionIds,
         is_system: true,
         is_active: true,
         deleted_at: null,
@@ -611,7 +587,9 @@ async function createAll(
         code: seed.code,
         name: seed.name,
         description: null,
-        permission_ids: [...seed.permission_codes],
+        permission_ids: permissionIds.map((permissionId) =>
+          permissionId.toString(),
+        ),
         is_system: true,
         is_active: true,
       },
@@ -652,7 +630,9 @@ async function createAll(
   }
 
   for (const seed of definitions.cities) {
-    if (existing.cities.some((c) => c.normalized_name === seed.normalized_name)) {
+    const key = cityKey(seed);
+
+    if (existing.cities.some((city) => cityKey(city) === key)) {
       continue;
     }
 
@@ -660,7 +640,7 @@ async function createAll(
       session,
       CityModel,
       {
-        _id: ids.cities.get(seed.normalized_name),
+        _id: ids.cities.get(key),
         organization_id: ids.organization,
         name: seed.name,
         normalized_name: seed.normalized_name,
