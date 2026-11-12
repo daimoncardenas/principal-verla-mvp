@@ -188,6 +188,12 @@ export function EmployeeForm({
     event.preventDefault();
     setError(null);
     setConflict(false);
+
+    if (cityIds.length === 0) {
+      setError("Selecciona al menos una ciudad.");
+      return;
+    }
+
     setSaving(true);
 
     const common = {
