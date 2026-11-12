@@ -226,6 +226,20 @@ export function computeCreationRequestHash(input: {
     .digest("hex");
 }
 
+export function activityRequiresOffer(activityType: {
+  code: string;
+  requires_offer: boolean;
+}): boolean {
+  return activityType.code === "SALE" || activityType.requires_offer;
+}
+
+export function isEmployeeEligibleForNewActivity(employee: {
+  status: string;
+  deleted_at: Date | null;
+}): boolean {
+  return employee.deleted_at === null && employee.status === "ACTIVE";
+}
+
 function isDuplicateKeyError(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -252,16 +266,24 @@ async function withTransaction<T>(
   }
 }
 
+export function buildActivityHistoryEmployeeFilter(
+  context: AuthContext,
+  employeeId: Types.ObjectId,
+): Record<string, unknown> {
+  return {
+    _id: employeeId,
+    organization_id: context.organization_id,
+    partner_id: context.partner_id,
+  };
+}
+
 async function findEmployee(
   context: AuthContext,
   employeeId: Types.ObjectId,
 ): Promise<EmployeeDocument | null> {
-  return EmployeeModel.findOne({
-    _id: employeeId,
-    organization_id: context.organization_id,
-    partner_id: context.partner_id,
-    deleted_at: null,
-  });
+  return EmployeeModel.findOne(
+    buildActivityHistoryEmployeeFilter(context, employeeId),
+  );
 }
 
 async function findEmployeeById(
@@ -291,7 +313,6 @@ async function loadAccessibleEmployeeIds(
   const employees = await EmployeeModel.find({
     organization_id: context.organization_id,
     partner_id: context.partner_id,
-    deleted_at: null,
     $or: [
       { _id: context.employee_id },
       { supervisor_id: context.employee_id },
@@ -414,7 +435,7 @@ async function resolveOfferSnapshot(
   offerId: Types.ObjectId | null,
   session?: ClientSession,
 ): Promise<OfferSnapshot | null> {
-  if (!activityType.requires_offer) {
+  if (!activityRequiresOffer(activityType)) {
     if (offerId) {
       throw new ActivityValidationError(
         "offer_id is only allowed for activity types that require an offer",
@@ -565,9 +586,9 @@ export async function createActivity(
     return { activity: existing, created: false };
   }
 
-  if (employee.status !== "ACTIVE") {
+  if (!isEmployeeEligibleForNewActivity(employee)) {
     throw new ActivityValidationError(
-      "Employee must be ACTIVE to register activities",
+      "Employee must be ACTIVE and not deleted to register activities",
     );
   }
 
@@ -738,7 +759,7 @@ export async function updateActivity(
         activity.offer_id?.equals(input.offer_id))
     );
 
-  if (activityType.requires_offer) {
+  if (activityRequiresOffer(activityType)) {
     if (!offerId) {
       throw new ActivityValidationError(
         "offer_id is required for this activity type",
