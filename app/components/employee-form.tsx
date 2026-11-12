@@ -281,6 +281,12 @@ export function EmployeeForm({
 
   return (
     <form className="stack" onSubmit={handleSubmit}>
+      {employeeTypes.length === 0 ? (
+        <Alert tone="warning">
+          No hay roles disponibles para este aliado. Crea un tipo de empleado
+          en Configuración → Tipos de empleado antes de dar de alta empleados.
+        </Alert>
+      ) : null}
       {error ? (
         <Alert
           tone="error"
