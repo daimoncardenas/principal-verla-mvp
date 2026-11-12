@@ -276,7 +276,7 @@ export default function EmployeesPage() {
           employees={lookups.employees}
           permissions={lookups.permissions}
           session={session}
-          canAssignPermissions={lookups.canAssignPermission}
+          canAssignPermissions={false}
           canChangeRole={session.account_type === "PARTNER"}
           onCancel={() => setCreateOpen(false)}
         />

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
@@ -71,6 +70,7 @@ export default function SettingsPage() {
     session.permissions,
     "EMPLOYEE_TYPE_CREATE",
   );
+  const canCreateCity = hasPermission(session.permissions, "CITY_CREATE");
   const canListRoles = hasPermission(
     session.permissions,
     "EMPLOYEE_TYPE_LIST",
@@ -112,6 +112,14 @@ export default function SettingsPage() {
   const [bugTitle, setBugTitle] = useState("");
   const [bugDescription, setBugDescription] = useState("");
   const [bugReports, setBugReports] = useState<BugReport[]>([]);
+
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cityName, setCityName] = useState("");
+  const [cityCountry, setCityCountry] = useState("CO");
+  const [cityRegion, setCityRegion] = useState("");
+  const [cityOfficialCode, setCityOfficialCode] = useState("");
+  const [citySaving, setCitySaving] = useState(false);
+  const [cityError, setCityError] = useState<string | null>(null);
 
   useEffect(() => {
     const data = profile.data;
@@ -313,6 +321,33 @@ export default function SettingsPage() {
       setSupervisorError(errorMessage(cause));
     } finally {
       setSupervisorSaving(false);
+    }
+  }
+
+  async function createCity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCitySaving(true);
+    setCityError(null);
+
+    try {
+      await apiFetch("/api/cities", {
+        method: "POST",
+        body: JSON.stringify({
+          name: cityName.trim(),
+          country_code: cityCountry.trim().toUpperCase(),
+          region_code: cityRegion.trim().toUpperCase(),
+          official_code: cityOfficialCode.trim() || null,
+        }),
+      });
+      setCityOpen(false);
+      setCityName("");
+      setCityRegion("");
+      setCityOfficialCode("");
+      cities.reload();
+    } catch (cause) {
+      setCityError(errorMessage(cause));
+    } finally {
+      setCitySaving(false);
     }
   }
 
@@ -638,7 +673,6 @@ export default function SettingsPage() {
                     <tr>
                       <th>Empleado</th>
                       <th>Permisos adicionales</th>
-                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -657,14 +691,6 @@ export default function SettingsPage() {
                               .map((id) => permissionNames.get(id) ?? id.slice(-6))
                               .join(", ")}
                           </td>
-                          <td>
-                            <Link
-                              href={`/employees/${employee.id}`}
-                              className="btn btn-ghost btn-sm"
-                            >
-                              Editar
-                            </Link>
-                          </td>
                         </tr>
                       ))}
                   </tbody>
@@ -680,6 +706,19 @@ export default function SettingsPage() {
           <CardHeader
             title="Ciudades"
             description="Catálogo disponible para la operación del aliado."
+            actions={
+              canCreateCity ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCityError(null);
+                    setCityOpen(true);
+                  }}
+                >
+                  + Crear ciudad
+                </Button>
+              ) : undefined
+            }
           />
           <div className="card-body">
             {cities.error ? <Alert tone="error">{cities.error}</Alert> : null}
@@ -799,6 +838,65 @@ export default function SettingsPage() {
           </Card>
         </div>
       ) : null}
+
+      <Modal
+        open={cityOpen}
+        title="Crear ciudad"
+        onClose={() => setCityOpen(false)}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => setCityOpen(false)}
+              disabled={citySaving}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" form="city-form" disabled={citySaving}>
+              {citySaving ? "Creando…" : "Crear ciudad"}
+            </Button>
+          </>
+        }
+      >
+        <form id="city-form" className="stack" onSubmit={createCity}>
+          {cityError ? <Alert tone="error">{cityError}</Alert> : null}
+          <Field label="Nombre" htmlFor="city_name">
+            <Input
+              id="city_name"
+              value={cityName}
+              onChange={(event) => setCityName(event.target.value)}
+              required
+            />
+          </Field>
+          <div className="form-grid">
+            <Field label="País" htmlFor="city_country">
+              <Input
+                id="city_country"
+                value={cityCountry}
+                onChange={(event) => setCityCountry(event.target.value)}
+                maxLength={2}
+                required
+              />
+            </Field>
+            <Field label="Región" htmlFor="city_region">
+              <Input
+                id="city_region"
+                value={cityRegion}
+                onChange={(event) => setCityRegion(event.target.value)}
+                placeholder="DC"
+                required
+              />
+            </Field>
+          </div>
+          <Field label="Código oficial" htmlFor="city_official_code">
+            <Input
+              id="city_official_code"
+              value={cityOfficialCode}
+              onChange={(event) => setCityOfficialCode(event.target.value)}
+            />
+          </Field>
+        </form>
+      </Modal>
 
       <Modal
         open={roleOpen}

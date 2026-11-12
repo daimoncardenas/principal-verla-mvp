@@ -623,6 +623,12 @@ export async function createEmployee(
 ): Promise<EmployeeDocument> {
   await assertPermission(context, "EMPLOYEE_CREATE");
 
+  if (input.additional_permission !== undefined) {
+    throw new EmployeeAccessError(
+      "Solo la organización puede asignar permisos adicionales",
+    );
+  }
+
   const employeeType = await loadActiveEmployeeType(
     context,
     input.employee_type_id,
@@ -662,21 +668,10 @@ export async function createEmployee(
 
   await assertValidCities(context, input.city_ids);
 
-  if (requiresPermissionAssignForCreation(input.additional_permission)) {
-    await assertPermission(context, "PERMISSION_ASSIGN");
-    await assertAdditionalPermissions(
-      context,
-      input.additional_permission ?? [],
-    );
-  }
-
   const passwordHash = await hashPassword(defaultEmployeePassword());
   const email = input.email.trim().toLowerCase();
   const displayName = `${input.first_name.trim()} ${input.last_name.trim()}`.trim();
-  const additionalPermission =
-    input.additional_permission && input.additional_permission.length > 0
-      ? input.additional_permission
-      : null;
+  const additionalPermission = null;
   const auditContext = buildAuditContext(context, requestId);
 
   try {
@@ -784,6 +779,12 @@ export async function updateEmployee(
   requestId: string,
 ): Promise<EmployeeDocument> {
   await assertPermission(context, "EMPLOYEE_UPDATE");
+
+  if (input.additional_permission !== undefined) {
+    throw new EmployeeAccessError(
+      "Solo la organización puede asignar permisos adicionales",
+    );
+  }
 
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
     throw new EmployeeValidationError(

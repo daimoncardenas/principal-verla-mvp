@@ -80,7 +80,7 @@ export default function NewEmployeePage() {
             employees={lookups.employees}
             permissions={lookups.permissions}
             session={session}
-            canAssignPermissions={lookups.canAssignPermission}
+            canAssignPermissions={false}
             canChangeRole={session.account_type === "PARTNER"}
           />
         </div>
