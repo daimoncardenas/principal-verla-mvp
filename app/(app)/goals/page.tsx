@@ -33,6 +33,7 @@ import type {
   EmployeeGoal,
   Goal,
   MetricGroup,
+  Offer,
 } from "../../lib/types";
 
 export default function GoalsPage() {
@@ -53,6 +54,10 @@ export default function GoalsPage() {
   const employeeGoals = useApiData<{ employee_goals: EmployeeGoal[] }>(
     canList ? "/api/employee-goals" : null,
   );
+  const canListOffers = hasPermission(session.permissions, "OFFER_LIST");
+  const offers = useApiData<{ offers: Offer[] }>(
+    canListOffers ? "/api/offers" : null,
+  );
   const period = currentYearMonthInTimeZone(session.organization.timezone);
   const canReadMetrics = hasPermission(session.permissions, "GOAL_METRICS");
   const metricsUrl = canReadMetrics
@@ -68,6 +73,7 @@ export default function GoalsPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [activityTypeId, setActivityTypeId] = useState("");
+  const [offerId, setOfferId] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +94,11 @@ export default function GoalsPage() {
     return map;
   }, [metrics.data]);
 
+  const selectedActivityType = activityTypes.data?.activity_types.find(
+    (type) => type.id === activityTypeId,
+  );
+  const requiresOffer = selectedActivityType?.requires_offer === true;
+
   const typeNames = useMemo(() => {
     const map = new Map<string, string>();
     for (const type of activityTypes.data?.activity_types ?? []) {
@@ -98,8 +109,14 @@ export default function GoalsPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
     setError(null);
+
+    if (requiresOffer && !offerId) {
+      setError("Selecciona la oferta para una meta de tipo SALE.");
+      return;
+    }
+
+    setSaving(true);
 
     try {
       await apiFetch("/api/goals", {
@@ -108,6 +125,7 @@ export default function GoalsPage() {
           code: code.trim(),
           name: name.trim(),
           activity_type_id: activityTypeId,
+          offer_id: requiresOffer ? offerId || null : null,
           description: description.trim() || null,
         }),
       });
@@ -115,6 +133,7 @@ export default function GoalsPage() {
       setCode("");
       setName("");
       setDescription("");
+      setOfferId("");
       goals.reload();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -146,6 +165,7 @@ export default function GoalsPage() {
                 setActivityTypeId(
                   activityTypes.data?.activity_types[0]?.id ?? "",
                 );
+                setOfferId("");
                 setError(null);
                 setOpen(true);
               }}
@@ -211,6 +231,7 @@ export default function GoalsPage() {
                       setActivityTypeId(
                         activityTypes.data?.activity_types[0]?.id ?? "",
                       );
+                      setOfferId("");
                       setError(null);
                       setOpen(true);
                     }}
@@ -319,7 +340,10 @@ export default function GoalsPage() {
             <Select
               id="goal_activity_type"
               value={activityTypeId}
-              onChange={(event) => setActivityTypeId(event.target.value)}
+              onChange={(event) => {
+                setActivityTypeId(event.target.value);
+                setOfferId("");
+              }}
               required
             >
               <option value="">Selecciona un tipo</option>
@@ -330,6 +354,27 @@ export default function GoalsPage() {
               ))}
             </Select>
           </Field>
+          {requiresOffer ? (
+            <Field
+              label="Oferta"
+              htmlFor="goal_offer"
+              hint="Solo ofertas publicadas y vigentes."
+            >
+              <Select
+                id="goal_offer"
+                value={offerId}
+                onChange={(event) => setOfferId(event.target.value)}
+                required
+              >
+                <option value="">Selecciona una oferta</option>
+                {(offers.data?.offers ?? []).map((offer) => (
+                  <option key={offer.id} value={offer.id}>
+                    {offer.title}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Descripción" htmlFor="goal_description">
             <Textarea
               id="goal_description"

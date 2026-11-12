@@ -37,6 +37,7 @@ import type {
   EmployeeGoal,
   Goal,
   MetricGroup,
+  Offer,
 } from "@/app/lib/types";
 
 export default function GoalDetailPage() {
@@ -73,6 +74,10 @@ export default function GoalDetailPage() {
         : null
     : null;
   const metrics = useApiData<{ groups: MetricGroup[] }>(metricsUrl);
+  const canListOffers = hasPermission(session.permissions, "OFFER_LIST");
+  const offers = useApiData<{ offers: Offer[] }>(
+    canListOffers ? "/api/offers" : null,
+  );
 
   const goal = goalData.data?.goal;
   const [tab, setTab] = useState("general");
@@ -81,10 +86,16 @@ export default function GoalDetailPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [activityTypeId, setActivityTypeId] = useState("");
+  const [offerId, setOfferId] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+
+  const selectedActivityType = activityTypes.data?.activity_types.find(
+    (type) => type.id === activityTypeId,
+  );
+  const requiresOffer = selectedActivityType?.requires_offer === true;
 
   const canUpdate = hasPermission(session.permissions, "GOAL_UPDATE");
   const canListGoals = hasPermission(session.permissions, "GOAL_LIST");
@@ -130,6 +141,7 @@ export default function GoalDetailPage() {
     setName(goal.name);
     setDescription(goal.description ?? "");
     setActivityTypeId(goal.activity_type_id);
+    setOfferId(goal.offer_id ?? "");
     setIsActive(goal.is_active);
     setError(null);
     setConflict(false);
@@ -143,6 +155,11 @@ export default function GoalDetailPage() {
     setError(null);
     setConflict(false);
 
+    if (requiresOffer && !offerId) {
+      setError("Selecciona la oferta para una meta de tipo SALE.");
+      return;
+    }
+
     try {
       await apiFetch(`/api/goals/${goal.id}`, {
         method: "PATCH",
@@ -152,6 +169,7 @@ export default function GoalDetailPage() {
           name: name.trim(),
           description: description.trim() || null,
           activity_type_id: activityTypeId,
+          offer_id: requiresOffer ? offerId || null : null,
           is_active: isActive,
         }),
       });
@@ -290,7 +308,13 @@ export default function GoalDetailPage() {
                   </tr>
                   <tr>
                     <th>Oferta específica</th>
-                    <td>{goal.offer_id ? "Sí" : "No"}</td>
+                    <td>
+                      {goal.offer_id
+                        ? offers.data?.offers.find(
+                            (offer) => offer.id === goal.offer_id,
+                          )?.title ?? "Sí"
+                        : "No"}
+                    </td>
                   </tr>
                   <tr>
                     <th>Creada</th>
@@ -487,6 +511,27 @@ export default function GoalDetailPage() {
               required
             />
           </Field>
+          {requiresOffer ? (
+            <Field
+              label="Oferta"
+              htmlFor="goal_edit_offer"
+              hint="Solo ofertas publicadas y vigentes."
+            >
+              <Select
+                id="goal_edit_offer"
+                value={offerId}
+                onChange={(event) => setOfferId(event.target.value)}
+                required
+              >
+                <option value="">Selecciona una oferta</option>
+                {(offers.data?.offers ?? []).map((offer) => (
+                  <option key={offer.id} value={offer.id}>
+                    {offer.title}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Descripción" htmlFor="goal_edit_description">
             <Textarea
               id="goal_edit_description"
@@ -498,7 +543,10 @@ export default function GoalDetailPage() {
             <Select
               id="goal_edit_activity_type"
               value={activityTypeId}
-              onChange={(event) => setActivityTypeId(event.target.value)}
+              onChange={(event) => {
+                setActivityTypeId(event.target.value);
+                setOfferId("");
+              }}
               required
             >
               {(activityTypes.data?.activity_types ?? []).map((type) => (
