@@ -14,6 +14,7 @@ export interface SessionUser {
   };
   partner_id: string;
   employee_id: string | null;
+  city_ids: string[];
   role_code?: string;
   role_name?: string;
   permissions: string[];

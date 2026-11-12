@@ -15,6 +15,7 @@ export interface AuthContext {
   partner_id: Types.ObjectId;
   employee_id: Types.ObjectId | null;
   employee_type_id: Types.ObjectId | null;
+  city_ids: Types.ObjectId[];
   supervisor_id: Types.ObjectId | null;
 }
 

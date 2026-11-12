@@ -120,6 +120,21 @@ export default function ActivitiesPage() {
     return map;
   }, [offers.data]);
 
+  const selectedEmployee = canListEmployees
+    ? employees.data?.employees.find((employee) => employee.id === employeeId)
+    : null;
+  const assignedCityIds = canListEmployees
+    ? selectedEmployee?.city_ids ?? []
+    : session.city_ids ?? [];
+  const availableCities = useMemo(
+    () =>
+      (cities.data?.cities ?? []).filter(
+        (city) =>
+          assignedCityIds.length === 0 || assignedCityIds.includes(city.id),
+      ),
+    [cities.data, assignedCityIds],
+  );
+
   const selectedType = typeNames.get(activityTypeId);
   const filtered = useMemo(() => {
     return (activities.data?.activities ?? []).filter((activity) => {
@@ -130,15 +145,24 @@ export default function ActivitiesPage() {
   }, [activities.data, typeFilter, statusFilter]);
 
   function resetForm() {
-    setEmployeeId(
-      canListEmployees
-        ? employees.data?.employees[0]?.id ?? ""
-        : "",
+    const nextEmployeeId = canListEmployees
+      ? employees.data?.employees[0]?.id ?? ""
+      : "";
+    const nextEmployee = employees.data?.employees.find(
+      (employee) => employee.id === nextEmployeeId,
     );
+    const nextCityIds = canListEmployees
+      ? nextEmployee?.city_ids ?? []
+      : session.city_ids ?? [];
+    const nextCity =
+      cities.data?.cities.find((city) => city.id === nextCityIds[0]) ??
+      cities.data?.cities[0];
+
+    setEmployeeId(nextEmployeeId);
     setActivityTypeId(
       activityTypes.data?.activity_types[0]?.id ?? "",
     );
-    setCityId(cities.data?.cities[0]?.id ?? "");
+    setCityId(nextCity?.id ?? "");
     setOfferId("");
     setTitle("");
     setDescription("");
@@ -371,7 +395,18 @@ export default function ActivitiesPage() {
               <Select
                 id="activity_employee"
                 value={employeeId}
-                onChange={(event) => setEmployeeId(event.target.value)}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  setEmployeeId(nextId);
+                  const employee = employees.data?.employees.find(
+                    (item) => item.id === nextId,
+                  );
+                  const nextCityId =
+                    employee?.city_ids.find((id) =>
+                      (cities.data?.cities ?? []).some((city) => city.id === id),
+                    ) ?? "";
+                  setCityId(nextCityId);
+                }}
                 required
               >
                 <option value="">Selecciona un empleado</option>
@@ -426,7 +461,15 @@ export default function ActivitiesPage() {
               </Select>
             </Field>
           ) : null}
-          <Field label="Ciudad" htmlFor="activity_city">
+          <Field
+            label="Ciudad"
+            htmlFor="activity_city"
+            hint={
+              availableCities.length === 0
+                ? "El empleado no tiene una ciudad asignada."
+                : "Solo se muestran las ciudades asignadas al empleado."
+            }
+          >
             <Select
               id="activity_city"
               value={cityId}
@@ -434,7 +477,7 @@ export default function ActivitiesPage() {
               required
             >
               <option value="">Selecciona una ciudad</option>
-              {(cities.data?.cities ?? []).map((city) => (
+              {availableCities.map((city) => (
                 <option key={city.id} value={city.id}>
                   {city.name}
                 </option>

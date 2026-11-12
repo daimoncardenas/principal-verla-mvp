@@ -56,6 +56,7 @@ export function serializeSession(context: AuthContext) {
     },
     partner_id: context.partner_id.toString(),
     employee_id: context.employee_id?.toString() ?? null,
+    city_ids: context.city_ids.map((id) => id.toString()),
   };
 }
 
