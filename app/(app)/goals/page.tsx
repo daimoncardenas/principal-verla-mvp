@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { useSession } from "../../components/session-context";
 import {
@@ -30,6 +30,7 @@ import { useApiData } from "../../lib/hooks";
 import { hasPermission } from "../../lib/permissions";
 import type {
   ActivityType,
+  Employee,
   EmployeeGoal,
   Goal,
   MetricGroup,
@@ -40,6 +41,7 @@ export default function GoalsPage() {
   const session = useSession();
   const canList = hasPermission(session.permissions, "GOAL_LIST");
   const canCreate = hasPermission(session.permissions, "GOAL_CREATE");
+  const canAssignGoal = hasPermission(session.permissions, "GOAL_ASSIGN");
   const canListTypes = hasPermission(
     session.permissions,
     "ACTIVITY_TYPE_LIST",
@@ -58,6 +60,11 @@ export default function GoalsPage() {
   const offers = useApiData<{ offers: Offer[] }>(
     canListOffers ? "/api/offers" : null,
   );
+  const employees = useApiData<{ employees: Employee[] }>(
+    canAssignGoal && hasPermission(session.permissions, "EMPLOYEE_LIST")
+      ? "/api/employees?status=ACTIVE"
+      : null,
+  );
   const period = currentYearMonthInTimeZone(session.organization.timezone);
   const canReadMetrics = hasPermission(session.permissions, "GOAL_METRICS");
   const metricsUrl = canReadMetrics
@@ -75,6 +82,10 @@ export default function GoalsPage() {
   const [activityTypeId, setActivityTypeId] = useState("");
   const [offerId, setOfferId] = useState("");
   const [description, setDescription] = useState("");
+  const [assignEmployeeId, setAssignEmployeeId] = useState("");
+  const [assignYear, setAssignYear] = useState(period.year);
+  const [assignMonth, setAssignMonth] = useState(period.month);
+  const [assignTarget, setAssignTarget] = useState("10");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +109,18 @@ export default function GoalsPage() {
     (type) => type.id === activityTypeId,
   );
   const requiresOffer = selectedActivityType?.requires_offer === true;
+  const initialAssignmentEnabled =
+    canAssignGoal && (employees.data?.employees.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (
+      initialAssignmentEnabled &&
+      !assignEmployeeId &&
+      employees.data?.employees[0]
+    ) {
+      setAssignEmployeeId(employees.data.employees[0].id);
+    }
+  }, [initialAssignmentEnabled, assignEmployeeId, employees.data]);
 
   const typeNames = useMemo(() => {
     const map = new Map<string, string>();
@@ -119,7 +142,13 @@ export default function GoalsPage() {
     setSaving(true);
 
     try {
-      await apiFetch("/api/goals", {
+      if (initialAssignmentEnabled && (!assignEmployeeId || !assignTarget)) {
+        setError("Selecciona el empleado y el objetivo inicial.");
+        setSaving(false);
+        return;
+      }
+
+      const created = await apiFetch<{ goal: Goal }>("/api/goals", {
         method: "POST",
         body: JSON.stringify({
           code: code.trim(),
@@ -129,12 +158,42 @@ export default function GoalsPage() {
           description: description.trim() || null,
         }),
       });
+
+      let assignmentError: string | null = null;
+
+      if (initialAssignmentEnabled && assignEmployeeId) {
+        try {
+          await apiFetch("/api/employee-goals", {
+            method: "POST",
+            body: JSON.stringify({
+              employee_id: assignEmployeeId,
+              goal_id: created.goal.id,
+              year: assignYear,
+              month: assignMonth,
+              target_value: Number(assignTarget),
+            }),
+          });
+        } catch (cause) {
+          assignmentError = errorMessage(cause);
+        }
+      }
+
+      goals.reload();
+      employeeGoals.reload();
+      metrics.reload();
+
+      if (assignmentError) {
+        setError(
+          `La meta se creó, pero no se pudo asignar: ${assignmentError}`,
+        );
+        return;
+      }
+
       setOpen(false);
       setCode("");
       setName("");
       setDescription("");
       setOfferId("");
-      goals.reload();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -166,6 +225,10 @@ export default function GoalsPage() {
                   activityTypes.data?.activity_types[0]?.id ?? "",
                 );
                 setOfferId("");
+                setAssignEmployeeId(employees.data?.employees[0]?.id ?? "");
+                setAssignYear(period.year);
+                setAssignMonth(period.month);
+                setAssignTarget("10");
                 setError(null);
                 setOpen(true);
               }}
@@ -232,6 +295,10 @@ export default function GoalsPage() {
                         activityTypes.data?.activity_types[0]?.id ?? "",
                       );
                       setOfferId("");
+                      setAssignEmployeeId(employees.data?.employees[0]?.id ?? "");
+                      setAssignYear(period.year);
+                      setAssignMonth(period.month);
+                      setAssignTarget("10");
                       setError(null);
                       setOpen(true);
                     }}
@@ -374,6 +441,72 @@ export default function GoalsPage() {
                 ))}
               </Select>
             </Field>
+          ) : null}
+          {initialAssignmentEnabled ? (
+            <div className="stack-sm">
+              <strong>Asignación inicial</strong>
+              <p className="hint">
+                El objetivo y el periodo se guardan en la meta asignada al empleado.
+              </p>
+              <Field label="Empleado" htmlFor="goal_assign_employee">
+                <Select
+                  id="goal_assign_employee"
+                  value={assignEmployeeId}
+                  onChange={(event) => setAssignEmployeeId(event.target.value)}
+                  required
+                >
+                  <option value="">Selecciona un empleado</option>
+                  {(employees.data?.employees ?? []).map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.first_name} {employee.last_name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="form-grid">
+                <Field label="Año" htmlFor="goal_assign_year">
+                  <Input
+                    id="goal_assign_year"
+                    type="number"
+                    min={2000}
+                    max={2100}
+                    value={assignYear}
+                    onChange={(event) => setAssignYear(Number(event.target.value))}
+                    required
+                  />
+                </Field>
+                <Field label="Mes" htmlFor="goal_assign_month">
+                  <Select
+                    id="goal_assign_month"
+                    value={assignMonth}
+                    onChange={(event) => setAssignMonth(Number(event.target.value))}
+                    required
+                  >
+                    {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                      (value) => (
+                        <option key={value} value={value}>
+                          {formatMonth(assignYear, value)}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </Field>
+              </div>
+              <Field
+                label="Objetivo"
+                htmlFor="goal_assign_target"
+                hint="Cantidad de actividades completadas que debe alcanzar el empleado."
+              >
+                <Input
+                  id="goal_assign_target"
+                  type="number"
+                  min={1}
+                  value={assignTarget}
+                  onChange={(event) => setAssignTarget(event.target.value)}
+                  required
+                />
+              </Field>
+            </div>
           ) : null}
           <Field label="Descripción" htmlFor="goal_description">
             <Textarea
