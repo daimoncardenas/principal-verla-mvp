@@ -88,6 +88,13 @@ export default function GoalDetailPage() {
   const [activityTypeId, setActivityTypeId] = useState("");
   const [offerId, setOfferId] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignEmployeeId, setAssignEmployeeId] = useState("");
+  const [assignYear, setAssignYear] = useState(initialPeriod.year);
+  const [assignMonth, setAssignMonth] = useState(initialPeriod.month);
+  const [assignTarget, setAssignTarget] = useState("10");
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -99,6 +106,10 @@ export default function GoalDetailPage() {
 
   const canUpdate = hasPermission(session.permissions, "GOAL_UPDATE");
   const canListGoals = hasPermission(session.permissions, "GOAL_LIST");
+  const canAssignGoal = hasPermission(session.permissions, "GOAL_ASSIGN");
+  const assignableEmployees = (employees.data?.employees ?? []).filter(
+    (employee) => employee.status === "ACTIVE",
+  );
 
   const typeNames = useMemo(() => {
     const map = new Map<string, ActivityType>();
@@ -134,6 +145,42 @@ export default function GoalDetailPage() {
       ),
     [metrics.data, goal?.id],
   );
+
+  function openAssign() {
+    setAssignEmployeeId(assignableEmployees[0]?.id ?? "");
+    setAssignYear(year);
+    setAssignMonth(month);
+    setAssignTarget("10");
+    setAssignError(null);
+    setAssignOpen(true);
+  }
+
+  async function submitAssign(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!goal || !assignEmployeeId) return;
+    setAssignSaving(true);
+    setAssignError(null);
+
+    try {
+      await apiFetch("/api/employee-goals", {
+        method: "POST",
+        body: JSON.stringify({
+          employee_id: assignEmployeeId,
+          goal_id: goal.id,
+          year: assignYear,
+          month: assignMonth,
+          target_value: Number(assignTarget),
+        }),
+      });
+      setAssignOpen(false);
+      employeeGoals.reload();
+      metrics.reload();
+    } catch (cause) {
+      setAssignError(errorMessage(cause));
+    } finally {
+      setAssignSaving(false);
+    }
+  }
 
   function openEdit() {
     if (!goal) return;
@@ -337,7 +384,11 @@ export default function GoalDetailPage() {
             title="Empleados"
             description="Asignaciones mensuales de esta meta."
             actions={
-              canListGoals ? (
+              canAssignGoal ? (
+                <Button size="sm" onClick={openAssign}>
+                  + Asignar meta
+                </Button>
+              ) : canListGoals ? (
                 <Link href="/employees" className="btn btn-ghost btn-sm">
                   Gestionar en empleados
                 </Link>
@@ -456,6 +507,88 @@ export default function GoalDetailPage() {
           </div>
         </Card>
       ) : null}
+
+      <Modal
+        open={assignOpen}
+        title="Asignar meta a un empleado"
+        onClose={() => setAssignOpen(false)}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => setAssignOpen(false)}
+              disabled={assignSaving}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" form="goal-assign-form" disabled={assignSaving}>
+              {assignSaving ? "Asignando…" : "Asignar meta"}
+            </Button>
+          </>
+        }
+      >
+        <form id="goal-assign-form" className="stack" onSubmit={submitAssign}>
+          {assignError ? <Alert tone="error">{assignError}</Alert> : null}
+          <Field label="Empleado" htmlFor="goal_assign_employee">
+            <Select
+              id="goal_assign_employee"
+              value={assignEmployeeId}
+              onChange={(event) => setAssignEmployeeId(event.target.value)}
+              required
+            >
+              <option value="">Selecciona un empleado</option>
+              {assignableEmployees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.first_name} {employee.last_name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="form-grid">
+            <Field label="Año" htmlFor="goal_assign_year">
+              <Input
+                id="goal_assign_year"
+                type="number"
+                min={2000}
+                max={2100}
+                value={assignYear}
+                onChange={(event) => setAssignYear(Number(event.target.value))}
+                required
+              />
+            </Field>
+            <Field label="Mes" htmlFor="goal_assign_month">
+              <Select
+                id="goal_assign_month"
+                value={assignMonth}
+                onChange={(event) => setAssignMonth(Number(event.target.value))}
+                required
+              >
+                {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                  (value) => (
+                    <option key={value} value={value}>
+                      {formatMonth(assignYear, value)}
+                    </option>
+                  ),
+                )}
+              </Select>
+            </Field>
+          </div>
+          <Field
+            label="Objetivo"
+            htmlFor="goal_assign_target"
+            hint="Cantidad de actividades completadas que debe alcanzar el empleado."
+          >
+            <Input
+              id="goal_assign_target"
+              type="number"
+              min={1}
+              value={assignTarget}
+              onChange={(event) => setAssignTarget(event.target.value)}
+              required
+            />
+          </Field>
+        </form>
+      </Modal>
 
       <Modal
         open={editOpen}
